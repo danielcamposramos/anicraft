@@ -45,6 +45,7 @@ pub struct FrameJob {
     /// A symbol open in place, in front of the picture (ADR 0045): onion skin composes its own
     /// frames (ADR 0051). Set with [`FrameJob::inside`].
     pub front: Option<Arc<Front>>,
+    stereo: Option<(anicraft_doc::StereoStage, anicraft_doc::StageEye)>,
 }
 
 impl FrameJob {
@@ -85,6 +86,10 @@ impl FrameJob {
     /// What the job draws: its frame with what its onion settings add (ADR 0047), on the open
     /// symbol's own timeline when there is one (ADR 0051).
     pub fn display_list(&self) -> DisplayList {
+        if let Some((stereo, eye)) = self.stereo {
+            let (scene, local) = self.doc.locate(self.frame);
+            return anicraft_doc::evaluate_scene_eye(&self.doc, scene, local, stereo, eye);
+        }
         let onion = self.onion.as_ref().filter(|o| o.shows());
         match (&self.front, onion) {
             (Some(front), Some(skin)) => display_list_inside(&self.doc, self.frame, front, skin),
@@ -207,7 +212,27 @@ pub fn frame_key(state: StateId, frame: u32, view: &View, onion: Option<&OnionSk
 /// A job whose `scene` is derived from the same inputs as its key.
 pub fn make_job(state: StateId, doc: &Document, frame: u32, view: View, onion: Option<&OnionSkin>) -> FrameJob {
     let onion = onion.filter(|o| o.shows()).copied();
-    FrameJob { key: frame_key(state, frame, &view, onion.as_ref()), raster: 0, scene: scene_key(state, frame, onion.as_ref()), doc: doc.clone(), frame, view, onion, camera: false, front: None }
+    FrameJob { key: frame_key(state, frame, &view, onion.as_ref()), raster: 0, scene: scene_key(state, frame, onion.as_ref()), doc: doc.clone(), frame, view, onion, camera: false, front: None, stereo: None }
+}
+
+/// A matched pair of native stage views from one document/frame snapshot. Both the image
+/// key and the evaluated-scene key include the eye and the native depth limits. Editing aids
+/// (onion skin and an open symbol's front) are deliberately absent, as in movie output.
+pub fn make_stereo_jobs(state: StateId, doc: &Document, frame: u32, view: View, stereo: anicraft_doc::StereoStage) -> [FrameJob; 2] {
+    use anicraft_doc::StageEye;
+    [StageEye::Left, StageEye::Right].map(|eye| {
+        let mut job = make_job(state, doc, frame, view, None);
+        let (sunk, popped) = stereo.limits();
+        let mix = |key| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (key, "stereo-stage", eye, sunk.to_bits(), popped.to_bits()).hash(&mut h);
+            h.finish()
+        };
+        job.key = mix(job.key);
+        job.scene = mix(job.scene);
+        job.stereo = Some((stereo, eye));
+        job
+    })
 }
 
 /// A job for rasterizer `raster` (from [`RenderService::raster_id`]; 0 is the CPU oracle, and

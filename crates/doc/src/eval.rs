@@ -161,6 +161,56 @@ pub fn evaluate_scene_camera(doc: &Document, scene: usize, frame: u32) -> Displa
     out
 }
 
+/// Which view of one authored stage is being evaluated. There is no scene eye-swap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StageEye {
+    Left,
+    Right,
+}
+
+/// Compositor-announced depth limits, converted to native stage pixels by the host.
+/// They change placement only: artwork keeps its size and its existing camera transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StereoStage {
+    sunk: f32,
+    popped: f32,
+}
+
+impl StereoStage {
+    /// Missing or invalid limits do not authorize an application-defined separation.
+    pub fn new(sunk: f32, popped: f32) -> Option<Self> {
+        (sunk.is_finite() && popped.is_finite() && sunk >= 0.0 && popped >= 0.0).then_some(Self { sunk, popped })
+    }
+
+    /// Native-pixel limits, also part of a rendered frame's identity.
+    pub fn limits(self) -> (f32, f32) {
+        (self.sunk, self.popped)
+    }
+
+    /// Left minus right in stage pixels. The existing depth law has zero at the stage;
+    /// nearer planes pop, farther planes sink. Positive depth never moves a plane forward.
+    pub fn disparity(self, depth: f32) -> f32 {
+        (self.sunk * (crate::camera::parallax(depth) - 1.0)).min(self.popped)
+    }
+}
+
+/// A single eye of the same immutable scene/frame, through its ordinary movie camera.
+/// Only root layers gain stereo placement; nested symbol artwork inherits it once.
+pub fn evaluate_scene_eye(doc: &Document, scene: usize, frame: u32, stereo: StereoStage, eye: StageEye) -> DisplayList {
+    let tl = doc.timeline(scene);
+    let mut cx = Ctx::through(tl.camera_at(frame, &doc.stage));
+    cx.stereo = Some((stereo, eye));
+    let mut out = DisplayList::default();
+    eval_timeline(doc, tl, frame, &cx, &mut out, None);
+    out
+}
+
+/// Both views of one immutable movie frame, left first; invalid native limits are rejected.
+pub fn evaluate_scene_stereo(doc: &Document, scene: usize, frame: u32, sunk: f32, popped: f32) -> Option<[DisplayList; 2]> {
+    let stereo = StereoStage::new(sunk, popped)?;
+    Some([StageEye::Left, StageEye::Right].map(|eye| evaluate_scene_eye(doc, scene, frame, stereo, eye)))
+}
+
 /// What the player shows (ADR 0024): the scene and frame its main timeline is on, each movie
 /// clip at its own playhead, buttons in their pointer state, and properties scripts set, seen
 /// through the scene's camera.
@@ -318,11 +368,12 @@ struct Ctx {
     /// The 9-slice scaling of the instance whose timeline this is (ADR 0055): its own shapes go
     /// through it, in place of the scale in `xf`. Not passed on to nested symbols.
     slice: Option<Slicing>,
+    stereo: Option<(StereoStage, StageEye)>,
 }
 
 impl Ctx {
     fn top(xf: Affine) -> Ctx {
-        Ctx { xf, color: ColorTransform::IDENTITY, depth: 0, root: None, outline: None, stage: true, clip: None, masks: None, guide: false, group: None, camera: None, slice: None }
+        Ctx { xf, color: ColorTransform::IDENTITY, depth: 0, root: None, outline: None, stage: true, clip: None, masks: None, guide: false, group: None, camera: None, slice: None, stereo: None }
     }
 
     /// A main timeline seen through `camera`: its tint colours everything.
@@ -425,7 +476,15 @@ fn eval_timeline(doc: &Document, tl: &Timeline, frame: u32, cx: &Ctx, out: &mut 
         let Some((kf_start, elements)) = evaluate_guided(layer, frame, walk.as_ref()) else { continue };
         let layer_outline = cx.outline.or(if layer.outline && cx.stage { Some(layer.color) } else { None });
         // Through a camera, each layer is placed by the camera and its own depth.
-        let layer_xf = cx.camera.map_or(cx.xf, |c| c.view(&doc.stage, layer.depth));
+        let mut layer_xf = cx.camera.map_or(cx.xf, |c| c.view(&doc.stage, layer.depth));
+        if let Some((stereo, eye)) = cx.stereo {
+            let disparity = stereo.disparity(layer.depth);
+            if disparity != 0.0 {
+                // Screen-horizontal after camera rotation; flat art keeps its exact transform.
+                let dx = disparity * if eye == StageEye::Left { 0.5 } else { -0.5 };
+                layer_xf = Affine::translate(dx, 0.0).mul(&layer_xf);
+            }
+        }
         for el in elements.iter() {
             // In the player, a symbol instance has its own path, and maybe properties a script set.
             let child = match (&el.kind, play) {
@@ -543,7 +602,7 @@ fn eval_timeline(doc: &Document, tl: &Timeline, frame: u32, cx: &Ctx, out: &mut 
                     };
                     // A symbol with 9-slice guides, scaled: its shapes are sliced (ADR 0055).
                     let slice = crate::nine_slice::slicing(doc, sym, &el.transform).map(|s| Slicing { post: layer_xf.mul(&s.post), ..s });
-                    let inner = Ctx { xf, color, depth: cx.depth + 1, root: Some((root_layer, root_el)), outline: layer_outline, stage: cx.stage, clip, masks, guide, group, camera: None, slice };
+                    let inner = Ctx { xf, color, depth: cx.depth + 1, root: Some((root_layer, root_el)), outline: layer_outline, stage: cx.stage, clip, masks, guide, group, camera: None, slice, stereo: None };
                     eval_timeline(doc, &sym.timeline, local, &inner, out, child.as_ref());
                 }
             }
