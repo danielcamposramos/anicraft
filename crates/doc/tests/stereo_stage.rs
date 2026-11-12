@@ -173,3 +173,28 @@ fn visible_masks_keep_their_clip_identity_and_hidden_layers_stay_hidden() {
         assert!(eye.clip_contains(artwork.clip.unwrap(), center));
     }
 }
+
+#[test]
+fn interactive_player_views_use_one_state_including_script_overrides() {
+    use anicraft_doc::{StageEye, StereoStage, evaluate_player, evaluate_player_eye};
+    use anicraft_doc::player::{PlayerState, Overrides};
+    let mut doc = document();
+    for layer in &mut doc.timeline_mut(0).layers { Arc::make_mut(layer).depth = 0.0; }
+    // Scripts address instances, not raw drawing shapes.
+    let mut inner = (*doc.timeline(0).layers[1]).clone();
+    Arc::make_mut(&mut Arc::make_mut(&mut inner.keyframes[0]).elements[0]).transform = Affine::IDENTITY;
+    let symbol = anicraft_doc::SymbolId(800);
+    doc.library.push(Arc::new(anicraft_doc::Symbol { id: symbol, name: "Actor".into(), kind: anicraft_doc::SymbolKind::Graphic, linkage: None, scale_grid: None, scale_grid_kept: None, timeline: anicraft_doc::Timeline { layers: vec![Arc::new(inner)] } }));
+    Arc::make_mut(&mut Arc::make_mut(&mut Arc::make_mut(&mut doc.timeline_mut(0).layers[1]).keyframes[0]).elements[0]).kind = ElementKind::Symbol { symbol, loop_mode: Default::default(), first_frame: 0, blend: Default::default(), filters: Vec::new(), events: Vec::new() };
+    let mut state = PlayerState::default();
+    state.root.frame = 12;
+    state.props.insert(vec![ElementId(11)], Overrides { x: Some(160.0), ..Default::default() });
+    let before = state.clone();
+    let ordinary = evaluate_player(&doc, &state);
+    for eye in [StageEye::Left, StageEye::Right] {
+        let rendered = evaluate_player_eye(&doc, &state, StereoStage::new(24.0, 12.0).unwrap(), eye);
+        assert_eq!(format!("{rendered:?}"), format!("{ordinary:?}"));
+        assert_eq!(rendered.items.iter().find(|i| i.element == ElementId(11)).unwrap().transform.translation().x, 160.0);
+    }
+    assert_eq!(state, before);
+}

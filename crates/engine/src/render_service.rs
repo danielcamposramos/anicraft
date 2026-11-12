@@ -46,6 +46,7 @@ pub struct FrameJob {
     /// frames (ADR 0051). Set with [`FrameJob::inside`].
     pub front: Option<Arc<Front>>,
     stereo: Option<(anicraft_doc::StereoStage, anicraft_doc::StageEye)>,
+    player: Option<Arc<anicraft_doc::player::PlayerState>>,
 }
 
 impl FrameJob {
@@ -87,6 +88,9 @@ impl FrameJob {
     /// symbol's own timeline when there is one (ADR 0051).
     pub fn display_list(&self) -> DisplayList {
         if let Some((stereo, eye)) = self.stereo {
+            if let Some(player) = &self.player {
+                return anicraft_doc::evaluate_player_eye(&self.doc, player, stereo, eye);
+            }
             let (scene, local) = self.doc.locate(self.frame);
             return anicraft_doc::evaluate_scene_eye(&self.doc, scene, local, stereo, eye);
         }
@@ -212,7 +216,7 @@ pub fn frame_key(state: StateId, frame: u32, view: &View, onion: Option<&OnionSk
 /// A job whose `scene` is derived from the same inputs as its key.
 pub fn make_job(state: StateId, doc: &Document, frame: u32, view: View, onion: Option<&OnionSkin>) -> FrameJob {
     let onion = onion.filter(|o| o.shows()).copied();
-    FrameJob { key: frame_key(state, frame, &view, onion.as_ref()), raster: 0, scene: scene_key(state, frame, onion.as_ref()), doc: doc.clone(), frame, view, onion, camera: false, front: None, stereo: None }
+    FrameJob { key: frame_key(state, frame, &view, onion.as_ref()), raster: 0, scene: scene_key(state, frame, onion.as_ref()), doc: doc.clone(), frame, view, onion, camera: false, front: None, stereo: None, player: None }
 }
 
 /// A matched pair of native stage views from one document/frame snapshot. Both the image
@@ -231,6 +235,25 @@ pub fn make_stereo_jobs(state: StateId, doc: &Document, frame: u32, view: View, 
         job.key = mix(job.key);
         job.scene = mix(job.scene);
         job.stereo = Some((stereo, eye));
+        job
+    })
+}
+
+/// Two views of a single captured interactive-player state. `revision` is the host's
+/// monotonically changing playback-state identity, like the document's `StateId`:
+/// change it for input/scripts as well as timeline steps, including a restart.
+pub fn make_player_stereo_jobs(state: StateId, doc: &Document, player: &anicraft_doc::player::PlayerState, revision: u64, view: View, stereo: anicraft_doc::StereoStage) -> [FrameJob; 2] {
+    let frame = doc.scene_start(player.scene).saturating_add(player.root.frame);
+    let captured = Arc::new(player.clone());
+    make_stereo_jobs(state, doc, frame, view, stereo).map(|mut job| {
+        let mix = |key| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (key, "interactive-player", revision).hash(&mut h);
+            h.finish()
+        };
+        job.key = mix(job.key);
+        job.scene = mix(job.scene);
+        job.player = Some(captured.clone());
         job
     })
 }
