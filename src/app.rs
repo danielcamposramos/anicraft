@@ -300,6 +300,8 @@ pub struct App {
     pub onion_ui: crate::onion::OnionUi,
     /// View › Preview Through Camera: the stage shows what the movie shows (ADR 0027).
     pub camera_preview: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) stereo: crate::stereo_stage::StageView,
     /// The tool in hand last frame (picking the Camera tool adds a camera).
     pub last_tool: Tool,
     pub status: Option<Status>,
@@ -561,6 +563,8 @@ impl App {
             onion: crate::onion::from_prefs(&prefs.onion),
             onion_ui: crate::onion::OnionUi::default(),
             camera_preview: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            stereo: Default::default(),
             last_tool: Tool::Select,
             status: None,
             prompt: None,
@@ -2832,6 +2836,10 @@ impl App {
         // An open button shows its hit area over its other states, in the theme's colour (ADR 0057).
         self.s.hit_area = Some(theme::hit_area());
         self.tick_playback(&ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(message) = self.stereo.tick(&self.s, &ctx) {
+            self.status_err(message);
+        }
         self.scrub_sound();
         self.update_title(&ctx);
         if let Some(st) = &mut self.status

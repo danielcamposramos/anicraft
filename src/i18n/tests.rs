@@ -818,3 +818,28 @@ fn the_selection_title_reads_like_the_engines_label_in_english() {
     }
     assert!(seen > 3, "the sample has elements ({seen})");
 }
+
+/// Run explicitly with the edition's craft-i18n input; a plain English upstream build has none.
+#[test]
+#[ignore = "requires the stereo edition craft-i18n input"]
+fn edition_stereo_stage_catalogs() {
+    let codes = ["pl", "pt-br", "fr", "de", "es", "ja", "ko", "zh-hans", "zh-hant"];
+    let keys = ["Stereo View", "Stereo depth is unavailable on this desktop; showing the flat stage.", "Could not show the stereo view: {error}", "The stereo view supports at most {pixels} stage pixels; reduce the stage dimensions.", "The compositor returned invalid depth limits.", "The stereo views have invalid dimensions.", "The stereo views do not match the requested frame and native size."];
+    let (all, problems) = Languages::new(CRAFT_I18N, &codes);
+    assert!(problems.is_empty(), "{problems:?}");
+    for code in codes {
+        let index = all.find(code).unwrap_or_else(|| panic!("missing edition catalog {code}"));
+        for key in keys {
+            let translated = all.lookup(index, "", key).unwrap_or_else(|| panic!("missing {code}: {key}"));
+            assert_ne!(translated, key, "English fallback is not a translation: {code}");
+        }
+    }
+    for (locale, expected) in [("es-MX", "es"), ("pt_BR.UTF-8", "pt-br"), ("zh_CN", "zh-hans"), ("zh_TW", "zh-hant")] {
+        let index = all.match_system(locale).unwrap();
+        assert_eq!(all.get(index).code, expected);
+    }
+    let (offered, _) = Languages::new(CRAFT_I18N, READY);
+    for code in ["ja", "ko", "zh-hans", "zh-hant"] {
+        assert!(offered.find(code).is_none(), "catalog data does not make an unsupported script ready");
+    }
+}

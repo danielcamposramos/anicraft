@@ -236,3 +236,11 @@ No new crate. The installers are built with tools that are not Rust dependencies
 | Freedom-to-operate patent search for core animation features | Open (recommended before 1.0) |
 | Full licence-text bundle generation (`cargo about`) in the release pipeline | Open (M8; the installers ship `LICENSE-*`, `NOTICE`, `ATTRIBUTION.md` and the font OFLs today) |
 | WiX's MS-RL parts inside the MSI (WixUI, `Wix4UtilCA`) and the AppImage runtime's LGPL libfuse3 | Open: family-wide practice, counsel to confirm (ADR 0026) |
+
+## Stereo edition window input (local branch)
+
+The edition adds `craft-stereo-window` from the adjacent, reviewed craft-libs checkout.
+It is MIT OR Apache-2.0 and uses permissive crates already used across the Craft apps.
+Its vendored KDE stereo protocol retains its MIT-CMU notice and attribution sidecar.
+There is no new copyleft licence exception; `cargo deny` still checks every native platform.
+The pure stage evaluator and renderer-pair contribution has no desktop dependency.

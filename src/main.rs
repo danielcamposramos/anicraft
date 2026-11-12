@@ -52,6 +52,8 @@ mod motion_path;
 mod onion;
 mod pathtools;
 mod platform;
+#[cfg(not(target_arch = "wasm32"))]
+mod stereo_stage;
 mod plugins_ui;
 mod prefs;
 mod recent;
@@ -108,6 +110,8 @@ struct Look {
     /// `--shot-width`: the screenshot scaled down to this many pixels across (the user guide's
     /// pictures, ADR 0069).
     shot_width: Option<u32>,
+    stereo: bool,
+    frame: Option<u32>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -141,6 +145,12 @@ fn run(renderer: eframe::Renderer, file: Option<&Path>, shot: Option<PathBuf>, o
             // No document to open: the start screen, unless it was switched off (ADR 0059).
             if starting_fresh && a.prefs.start_screen {
                 start::open(&mut a);
+            }
+            a.stereo.enabled = look.stereo;
+            if let Some(frame) = look.frame {
+                let (scene, local) = a.s.doc.locate(frame - 1);
+                a.s.scene = scene;
+                a.s.frame = local;
             }
             a.preview_look(&cc.egui_ctx, look.theme, look.scale);
             a.open_panel(open.as_deref());
@@ -191,6 +201,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         match a.as_str() {
             "--screenshot" => out.shot = Some(PathBuf::from(args.next().ok_or("--screenshot needs a file name")?)), // i18n-exempt: a console message
             "--open" => out.open = args.next(),
+            "--stereo" => out.look.stereo = true,
+            "--frame" => match args.next().and_then(|s| s.parse::<u32>().ok()) {
+                Some(frame) if frame > 0 => out.look.frame = Some(frame),
+                _ => return Err("--frame is 1-based; the first frame is 1".into()), // i18n-exempt: console diagnostic
+            },
             "--renderer" => out.renderer = args.next(),
             "--shot-width" => match args.next().and_then(|s| s.parse::<u32>().ok()) {
                 Some(w) if (64..=8192).contains(&w) => out.look.shot_width = Some(w),
@@ -226,8 +241,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
 /// `--help` (the console's text, in English).
 #[cfg(not(target_arch = "wasm32"))]
 // i18n-exempt: the --help console text
-const HELP: &str = "anicraft [file.anicraft|file.fla|file.xfl] [--version] [--screenshot out.png [--shot-width <px>]] [--renderer wgpu|gl] [--theme graphite|high-contrast] [--scale <percent>] [--lang <code>|auto|pseudo] [--open palette|shortcuts|lastscene|start|drop|droplibrary|select|about|files|confirm|transform|points|merge|rawparts|rawedit|rawsub|rawpoints|rawsnap|symboledit|nineslice|nineslicedit|brush|brushing|brushlibrary|brushcurve|paintbrush|eraser|erasing|eyedropper|pen|frames|span|bucket|tlzoom|tlwide|motion|motionspan|motionpath|motionpoints|motionedit|motionpins|motionpinsspan|hints|hintsend|camera|cameraview|filters|strokes|prefs|licenses|zoom|recovery|plugins|actions|script|scriptproblems|testmovie|testmovieinside|testscript|textfields|testtext|button|testhits|exporthtml|publish|publishreport|publishanim|sound|envelope|library|librarymenu|colour|layerprops|frameview|layercolour|timelinepolish]\n\
+const HELP: &str = "anicraft [file.anicraft|file.fla|file.xfl] [--version] [--stereo] [--frame N] [--screenshot out.png [--shot-width <px>]] [--renderer wgpu|gl] [--theme graphite|high-contrast] [--scale <percent>] [--lang <code>|auto|pseudo] [--open palette|shortcuts|lastscene|start|drop|droplibrary|select|about|files|confirm|transform|points|merge|rawparts|rawedit|rawsub|rawpoints|rawsnap|symboledit|nineslice|nineslicedit|brush|brushing|brushlibrary|brushcurve|paintbrush|eraser|erasing|eyedropper|pen|frames|span|bucket|tlzoom|tlwide|motion|motionspan|motionpath|motionpoints|motionedit|motionpins|motionpinsspan|hints|hintsend|camera|cameraview|filters|strokes|prefs|licenses|zoom|recovery|plugins|actions|script|scriptproblems|testmovie|testmovieinside|testscript|textfields|testtext|button|testhits|exporthtml|publish|publishreport|publishanim|sound|envelope|library|librarymenu|colour|layerprops|frameview|layercolour|timelinepolish]\n\
      --renderer   force the GPU backend (also ANICRAFT_RENDERER); default wgpu, falling back to OpenGL\n\
+     --stereo     opens a native stereo movie-stage view (compositor limits, no scene eye swap)\n\
+     --frame      starts at this movie frame (1-based), without changing the file\n\
      --open       shows a panel at start (handy with --screenshot for visual checks)\n\
      --shot-width scales the screenshot down to this width (the user guide's pictures)\n\
      ANICRAFT_STAGE_RENDERER=gpu|cpu  stage renderer (default gpu, falling back to cpu; ADR 0032)\n\
@@ -291,6 +308,17 @@ mod args_tests {
 
     /// Windows (`"%1"`) and Linux (`%f`) hand a double-clicked document over as the one plain
     /// argument, spaces and all; it opens through `file.open`, as File › Open does.
+    #[test]
+    fn stereo_and_starting_frame_are_view_state_arguments() {
+        let args = parse(&["walk.anicraft", "--stereo", "--frame", "13"]);
+        assert!(args.look.stereo);
+        assert_eq!(args.look.frame, Some(13));
+        for bad in ["0", "-1", "nan"] {
+            assert!(parse_args(["--frame".into(), bad.into()]).is_err());
+        }
+        assert!(parse_args(["--frame".into()]).is_err());
+    }
+
     #[test]
     fn a_double_clicked_document_arrives_on_the_command_line_and_opens() {
         for path in [r"C:\Users\Ana Lima\My Films\walk cycle.anicraft", "/home/ana/Films/old scene.fla", "/home/ana/Films/Scene/DOMDocument.xfl", "relative.anicraft"] {

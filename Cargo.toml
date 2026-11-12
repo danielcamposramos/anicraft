@@ -112,6 +112,8 @@ sys-locale = "0.3"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The user guide, bundled for Help › User Guide (ADR 0069). The web build serves it as pages instead.
 anicraft-guide.workspace = true
+# Native declarations and placement are shared with the other stereo edition apps.
+craft-stereo-window = { path = "../craft-libs-depth/crates/stereo-window" }
 craft-update = { git = "https://github.com/storytold/craft-libs", rev = "6ac2a6a34ae83fc0f0bfb25a569ba6388b72266a" }
 
 eframe = { workspace = true, features = ["links"] }

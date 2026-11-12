@@ -634,6 +634,17 @@ pub fn set_unsaved(unsaved: bool) {
     crate::web::set_unsaved(unsaved);
 }
 
+/// Native stereo windows currently use the shared Linux/BSD Wayland/X11 backend.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn stereo_stage_available() -> bool {
+    OS == Os::Linux && !WEB
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_stereo_window(title: &str) -> Result<craft_stereo_window::StereoWindow, craft_stereo_window::Error> {
+    craft_stereo_window::StereoWindow::open(title, "org.storytold.AniCraft.StereoView")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

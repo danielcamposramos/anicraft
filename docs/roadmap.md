@@ -128,3 +128,14 @@ Next, in order:
 | XFL edge encoding is under-documented | Build a self-authored corpus; unknown elements kept verbatim; fail with readable errors. |
 | egui immediate-mode cost with big timelines | Virtualise the frame grid (paint only visible cells); cache layer row summaries per revision. |
 | Snapshot undo memory | `Arc` structural sharing in M2; history size cap with a preference. |
+
+## Local stereo edition stage view
+
+A separate View > Stereo View shows two native-resolution movie-stage views from one
+immutable timeline frame, using each layer's existing authored depth (ADR 0070).
+The pure evaluator and renderer-pair API are a separate upstream subject; the edition
+host adapter uses craft-stereo-window for compositor feedback and one left-first SBS buffer.
+Zero-depth artwork keeps its ordinary camera pixels. Missing compositor limits are
+reported and show the ordinary camera view, without an invented separation.
+This is not a real 3D mesh renderer. Cross-platform native hosts and Asian interface
+font/shaping readiness remain outside this Linux edition adapter.

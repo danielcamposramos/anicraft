@@ -607,6 +607,10 @@ pub(crate) fn menu_contents(app: &mut App, ui: &mut egui::Ui, top: &str, cmds: &
             if ui_item(ui, tr!("Preview Through Camera"), "", Some(app.camera_preview)) {
                 app.toggle_camera_preview();
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            if crate::platform::stereo_stage_available() && ui_item(ui, tr!("Stereo View"), "", Some(app.stereo.enabled)) {
+                app.stereo.toggle();
+            }
             ui.menu_button(tr!("Stage Rendering"), |ui| {
                 for (mode, name, tip) in crate::prefs::RenderMode::ALL {
                     if ui_item(ui, crate::i18n::t(name), "", Some(app.prefs.render_mode == mode)) {
