@@ -128,10 +128,4 @@ language on is one line once the shell can draw it.
 
 ## Stereo edition additions (local branch)
 
-The edition's craft-i18n branch adds seven-entry partial AniCraft catalogs for pl, pt-br,
-fr, de, es, ja, ko, zh-hans and zh-hant; English remains the source text.
-These are new catalogs, not copies of another app's translation source.
-The title, unavailable-depth message, error template and local error details pass through the ordinary lookup.
-Japanese, Korean and Chinese remain outside `i18n::READY` until the app supports their
-fonts and shaping; embedding those rows does not claim those interfaces are ready.
-Native-speaker review is still needed for all nine partial catalogs.
+The edition's craft-i18n branch adds seven-entry partial AniCraft catalogs for pl, pt-br, fr, de, es, ja, ko, zh-hans and zh-hant; English remains the source text. These are new catalogs, not copies of another app's translation source. The title, unavailable-depth message, error template and local error details pass through the ordinary lookup. Japanese, Korean and Chinese remain outside `i18n::READY` until the app supports their fonts and shaping; embedding those rows does not claim those interfaces are ready. Native-speaker review is still needed for all nine partial catalogs.
