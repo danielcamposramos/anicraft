@@ -139,6 +139,12 @@ pub struct TestMovie {
 }
 
 impl TestMovie {
+    /// The same interactive state the ordinary Test Movie surface displays.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn stereo_snapshot(&self) -> (&Document, &PlayerState) { (&self.doc, &self.movie.state) }
+}
+
+impl TestMovie {
     /// Starts the sounds the movie's last steps reached, and hands the result to the player.
     fn feed(&mut self, out: &mut crate::sound::SoundOut) {
         let started = self.movie.take_sounds();

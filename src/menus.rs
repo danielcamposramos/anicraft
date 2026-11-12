@@ -608,8 +608,13 @@ pub(crate) fn menu_contents(app: &mut App, ui: &mut egui::Ui, top: &str, cmds: &
                 app.toggle_camera_preview();
             }
             #[cfg(not(target_arch = "wasm32"))]
-            if crate::platform::stereo_stage_available() && ui_item(ui, tr!("Stereo View"), "", Some(app.stereo.enabled)) {
-                app.stereo.toggle();
+            if crate::platform::stereo_stage_available() {
+                if ui_item(ui, tr!("Stereo View"), "", Some(app.stereo.enabled)) { app.stereo.toggle(); }
+                if ui_item(ui, tr!("Render resolution per eye"), "", None) { app.stereo.options_open = true; }
+                if ui_item(ui, tr!("Display Settings"), "", None)
+                    && let Err(error) = crate::platform::open_display_settings() {
+                    app.status_err(tr!("Could not open Display Settings: {error}", error = error));
+                }
             }
             ui.menu_button(tr!("Stage Rendering"), |ui| {
                 for (mode, name, tip) in crate::prefs::RenderMode::ALL {

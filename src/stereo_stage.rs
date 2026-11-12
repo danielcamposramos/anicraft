@@ -3,7 +3,7 @@
 
 use anicraft_doc::StereoStage;
 use anicraft_engine::Session;
-use anicraft_engine::render_service::{FrameImage, FrameJob, RenderService, make_stereo_jobs};
+use anicraft_engine::render_service::{FrameImage, FrameJob, RenderService, make_stereo_jobs, make_player_stereo_jobs};
 use anicraft_geom::Affine;
 use anicraft_render::{MAX_PIXELS, View};
 use craft_stereo_window::{Picture, StereoWindow};
@@ -12,6 +12,10 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 pub struct StageView {
     pub enabled: bool,
+    pub options_open: bool,
+    pub render_size: Option<[u32; 2]>,
+    player_seen: Option<anicraft_doc::player::PlayerState>,
+    player_revision: u64,
     window: Option<StereoWindow>,
     render: Option<RenderService>,
     presented: Option<[u64; 2]>,
@@ -41,7 +45,7 @@ impl StageView {
 
     /// Poll feedback and render only a complete pair. Opening/closing and errors never edit
     /// the document or advance its timeline. The renderer's existing bounded worker owns work.
-    pub fn tick(&mut self, session: &Session, ctx: &egui::Context) -> Option<String> {
+    pub fn tick(&mut self, session: &Session, player: Option<(&anicraft_doc::Document, &anicraft_doc::player::PlayerState)>, ctx: &egui::Context) -> Option<String> {
         if !self.enabled {
             return None;
         }
@@ -50,7 +54,7 @@ impl StageView {
             ctx.request_repaint();
             return None;
         }
-        match self.update(session, ctx) {
+        match self.update(session, player, ctx) {
             Ok(message) => message,
             Err(error) => {
                 self.close();
@@ -59,12 +63,10 @@ impl StageView {
         }
     }
 
-    fn update(&mut self, session: &Session, ctx: &egui::Context) -> Result<Option<String>, String> {
-        let doc = &session.doc;
-        let (w, h) = (doc.stage.width, doc.stage.height);
-        if w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_PIXELS {
-            return Err(tr!("The stereo view supports at most {pixels} stage pixels; reduce the stage dimensions.", pixels = MAX_PIXELS));
-        }
+    fn update(&mut self, session: &Session, player: Option<(&anicraft_doc::Document, &anicraft_doc::player::PlayerState)>, ctx: &egui::Context) -> Result<Option<String>, String> {
+        let doc = player.map_or(&session.doc, |(doc, _)| doc);
+        let view = render_view(doc, self.render_size)?;
+        let w = view.width;
         if self.window.is_none() {
             self.opened = Some(Instant::now());
             self.window = Some(crate::platform::open_stereo_window(tr!("Stereo View")).map_err(|e| e.to_string())?);
@@ -78,14 +80,23 @@ impl StageView {
             self.close();
             return Ok(None);
         }
+        let scale = view.transform.m[0];
         let limits = window.depth_limits().map(|limits| limits.native_pixels(w));
         let (sunk, popped) = limits.unwrap_or((0.0, 0.0));
-        let stereo = StereoStage::new(sunk as f32, popped as f32).ok_or_else(|| tr!("The compositor returned invalid depth limits."))?;
+        let stereo = StereoStage::new(sunk as f32 / scale, popped as f32 / scale).ok_or_else(|| tr!("The compositor returned invalid depth limits."))?;
         // The first zero-budget pair maps the native window so the compositor can send its
         // placement and limits. It is the ordinary camera picture, never an invented baseline.
         let frame = movie_frame(session);
-        let view = View { transform: Affine::IDENTITY, width: w, height: h, background: Some(doc.stage.background) };
-        let jobs = make_stereo_jobs(session.state, doc, frame, view, stereo);
+        let jobs = if let Some((_, state)) = player {
+            if self.player_seen.as_ref() != Some(state) {
+                self.player_revision = self.player_revision.wrapping_add(1);
+                self.player_seen = Some(state.clone());
+            }
+            make_player_stereo_jobs(session.state, doc, state, self.player_revision, view, stereo)
+        } else {
+            if self.player_seen.take().is_some() { self.player_revision = self.player_revision.wrapping_add(1); }
+            make_stereo_jobs(session.state, doc, frame, view, stereo)
+        };
         let keys = [jobs[0].key, jobs[1].key];
         if self.pending.is_none() && self.presented != Some(keys) {
             self.pending = Some(jobs);
@@ -118,6 +129,49 @@ impl StageView {
             self.warned = false;
         }
         Ok(None)
+    }
+}
+
+/// Render directly at the chosen sample count, keeping the document's aspect ratio.
+/// A different aspect gets the same centered fit used by the movie view, not stretched art.
+fn render_view(doc: &anicraft_doc::Document, requested: Option<[u32; 2]>) -> Result<View, String> {
+    let [w, h] = requested.unwrap_or([doc.stage.width, doc.stage.height]);
+    if w == 0 || h == 0 || doc.stage.width == 0 || doc.stage.height == 0 || u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return Err(tr!("The stereo view supports at most {pixels} render pixels per eye; reduce the render resolution.", pixels = MAX_PIXELS));
+    }
+    let scale = (w as f32 / doc.stage.width as f32).min(h as f32 / doc.stage.height as f32);
+    let x = (w as f32 - doc.stage.width as f32 * scale) * 0.5;
+    let y = (h as f32 - doc.stage.height as f32 * scale) * 0.5;
+    let transform = Affine::translate(x, y).mul(&Affine::scale(scale, scale));
+    Ok(View { transform, width: w, height: h, background: Some(doc.stage.background) })
+}
+
+impl StageView {
+    pub fn settings(&mut self, doc: &anicraft_doc::Document, ctx: &egui::Context) -> Option<String> {
+        if !self.options_open { return None; }
+        use crate::theme::{Type, text};
+        let mut open = true;
+        let mut error = None;
+        egui::Window::new(tr!("Render resolution per eye")).open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.label(text(Type::Body, tr!("The document stage size preserves its original sampling; the desktop scales once.")));
+            let mut size = self.render_size.unwrap_or([doc.stage.width, doc.stage.height]);
+            let changed = ui.horizontal(|ui| {
+                ui.label(text(Type::Body, tr!("Width")));
+                let width = ui.add(egui::DragValue::new(&mut size[0]).range(1..=MAX_PIXELS as u32)).changed();
+                ui.label(text(Type::Body, tr!("Height")));
+                let height = ui.add(egui::DragValue::new(&mut size[1]).range(1..=MAX_PIXELS as u32)).changed();
+                width || height
+            }).inner;
+            if changed {
+                match render_view(doc, Some(size)) {
+                    Ok(_) => self.render_size = Some(size),
+                    Err(e) => error = Some(e),
+                }
+            }
+            if ui.button(tr!("Use document stage size")).clicked() { self.render_size = None; }
+        });
+        self.options_open = open;
+        error
     }
 }
 
@@ -231,5 +285,29 @@ mod tests {
         right.width = 2;
         right.error = Some("raster failed".into());
         assert!(pack(&left, &right, [1, 2], 7).is_err());
+    }
+}
+
+#[cfg(test)]
+mod resolution_tests {
+    use super::*;
+    use anicraft_geom::Vec2;
+    #[test]
+    fn render_resolution_keeps_document_shape_and_native_sampling() {
+        let mut doc = anicraft_doc::Document::default();
+        doc.stage.width = 320;
+        doc.stage.height = 180;
+        let native = render_view(&doc, None).unwrap();
+        assert_eq!((native.width, native.height), (320, 180));
+        assert_eq!(native.transform, Affine::IDENTITY);
+        let larger = render_view(&doc, Some([640, 360])).unwrap();
+        assert_eq!((larger.width, larger.height), (640, 360));
+        assert_eq!(larger.transform.apply(Vec2::new(40.0, 60.0)), Vec2::new(80.0, 120.0));
+        let boxed = render_view(&doc, Some([640, 480])).unwrap();
+        assert_eq!(boxed.transform.apply(Vec2::new(0.0, 0.0)), Vec2::new(0.0, 60.0));
+        assert_eq!(boxed.transform.apply(Vec2::new(320.0, 180.0)), Vec2::new(640.0, 420.0));
+        assert!(render_view(&doc, Some([0, 360])).is_err());
+        assert!(render_view(&doc, Some([u32::MAX, u32::MAX])).is_err());
+        assert_eq!((doc.stage.width, doc.stage.height), (320, 180));
     }
 }

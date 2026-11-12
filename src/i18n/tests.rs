@@ -824,7 +824,7 @@ fn the_selection_title_reads_like_the_engines_label_in_english() {
 #[ignore = "requires the stereo edition craft-i18n input"]
 fn edition_stereo_stage_catalogs() {
     let codes = ["pl", "pt-br", "fr", "de", "es", "ja", "ko", "zh-hans", "zh-hant"];
-    let keys = ["Stereo View", "Stereo depth is unavailable on this desktop; showing the flat stage.", "Could not show the stereo view: {error}", "The stereo view supports at most {pixels} stage pixels; reduce the stage dimensions.", "The compositor returned invalid depth limits.", "The stereo views have invalid dimensions.", "The stereo views do not match the requested frame and native size."];
+    let keys = ["Stereo View", "Stereo depth is unavailable on this desktop; showing the flat stage.", "Could not show the stereo view: {error}", "The stereo view supports at most {pixels} stage pixels; reduce the stage dimensions.", "The compositor returned invalid depth limits.", "The stereo views have invalid dimensions.", "The stereo views do not match the requested frame and native size.", "Render resolution per eye", "The document stage size preserves its original sampling; the desktop scales once.", "Use document stage size", "Display Settings", "Could not open Display Settings: {error}", "The stereo view supports at most {pixels} render pixels per eye; reduce the render resolution.", "Width", "Height"];
     let (all, problems) = Languages::new(CRAFT_I18N, &codes);
     assert!(problems.is_empty(), "{problems:?}");
     for code in codes {

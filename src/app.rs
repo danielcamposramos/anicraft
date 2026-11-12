@@ -1237,6 +1237,8 @@ impl App {
                     ]}),
                 );
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Some("stereooptions") => { self.stereo.options_open = true; }
             Some("testmovieinside") => {
                 // Test Movie floating inside the editor (ADR 0062), as where there can't be a
                 // window of its own; for this run only (screenshot runs never save preferences).
@@ -2836,10 +2838,6 @@ impl App {
         // An open button shows its hit area over its other states, in the theme's colour (ADR 0057).
         self.s.hit_area = Some(theme::hit_area());
         self.tick_playback(&ctx);
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(message) = self.stereo.tick(&self.s, &ctx) {
-            self.status_err(message);
-        }
         self.scrub_sound();
         self.update_title(&ctx);
         if let Some(st) = &mut self.status
@@ -2897,6 +2895,12 @@ impl App {
         crate::brush_panel::show(self, &ctx);
         crate::publish_panel::show(self, &ctx);
         crate::test_movie::show(self, &ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(message) = self.stereo.settings(&self.s.doc, &ctx) { self.status_err(message); }
+            let player = self.test_movie.as_ref().map(crate::test_movie::TestMovie::stereo_snapshot);
+            if let Some(message) = self.stereo.tick(&self.s, player, &ctx) { self.status_err(message); }
+        }
         crate::envelope::show(self, &ctx);
 
         // Never lose work on close: intercept it while there are unsaved changes.

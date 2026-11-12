@@ -111,6 +111,8 @@ struct Look {
     /// pictures, ADR 0069).
     shot_width: Option<u32>,
     stereo: bool,
+    stereo_size: Option<[u32; 2]>,
+    test_movie: bool,
     frame: Option<u32>,
 }
 
@@ -147,6 +149,7 @@ fn run(renderer: eframe::Renderer, file: Option<&Path>, shot: Option<PathBuf>, o
                 start::open(&mut a);
             }
             a.stereo.enabled = look.stereo;
+            a.stereo.render_size = look.stereo_size;
             if let Some(frame) = look.frame {
                 let (scene, local) = a.s.doc.locate(frame - 1);
                 a.s.scene = scene;
@@ -154,6 +157,7 @@ fn run(renderer: eframe::Renderer, file: Option<&Path>, shot: Option<PathBuf>, o
             }
             a.preview_look(&cc.egui_ctx, look.theme, look.scale);
             a.open_panel(open.as_deref());
+            if look.test_movie { crate::test_movie::open(&mut a); }
             // An imported document says what came across, as opening it from the menu does.
             if let Some(r) = report {
                 a.status_ok(tr!("{report} Save to keep it as an AniCraft document.", report = r));
@@ -202,6 +206,15 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--screenshot" => out.shot = Some(PathBuf::from(args.next().ok_or("--screenshot needs a file name")?)), // i18n-exempt: a console message
             "--open" => out.open = args.next(),
             "--stereo" => out.look.stereo = true,
+            "--test-movie" => out.look.test_movie = true,
+            "--stereo-size" => {
+                let value = args.next().ok_or("--stereo-size needs WIDTHxHEIGHT")?; // i18n-exempt: console diagnostic
+                let pair = value.split_once('x').and_then(|(w, h)| Some([w.parse::<u32>().ok()?, h.parse::<u32>().ok()?]));
+                match pair {
+                    Some([w, h]) if w > 0 && h > 0 && u64::from(w) * u64::from(h) <= anicraft_render::MAX_PIXELS => out.look.stereo_size = Some([w, h]),
+                    _ => return Err("--stereo-size needs positive WIDTHxHEIGHT within the renderer's pixel limit".into()), // i18n-exempt: console diagnostic
+                }
+            }
             "--frame" => match args.next().and_then(|s| s.parse::<u32>().ok()) {
                 Some(frame) if frame > 0 => out.look.frame = Some(frame),
                 _ => return Err("--frame is 1-based; the first frame is 1".into()), // i18n-exempt: console diagnostic
@@ -241,7 +254,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
 /// `--help` (the console's text, in English).
 #[cfg(not(target_arch = "wasm32"))]
 // i18n-exempt: the --help console text
-const HELP: &str = "anicraft [file.anicraft|file.fla|file.xfl] [--version] [--stereo] [--frame N] [--screenshot out.png [--shot-width <px>]] [--renderer wgpu|gl] [--theme graphite|high-contrast] [--scale <percent>] [--lang <code>|auto|pseudo] [--open palette|shortcuts|lastscene|start|drop|droplibrary|select|about|files|confirm|transform|points|merge|rawparts|rawedit|rawsub|rawpoints|rawsnap|symboledit|nineslice|nineslicedit|brush|brushing|brushlibrary|brushcurve|paintbrush|eraser|erasing|eyedropper|pen|frames|span|bucket|tlzoom|tlwide|motion|motionspan|motionpath|motionpoints|motionedit|motionpins|motionpinsspan|hints|hintsend|camera|cameraview|filters|strokes|prefs|licenses|zoom|recovery|plugins|actions|script|scriptproblems|testmovie|testmovieinside|testscript|textfields|testtext|button|testhits|exporthtml|publish|publishreport|publishanim|sound|envelope|library|librarymenu|colour|layerprops|frameview|layercolour|timelinepolish]\n\
+const HELP: &str = "anicraft [file.anicraft|file.fla|file.xfl] [--version] [--stereo] [--stereo-size WIDTHxHEIGHT] [--test-movie] [--frame N] [--screenshot out.png [--shot-width <px>]] [--renderer wgpu|gl] [--theme graphite|high-contrast] [--scale <percent>] [--lang <code>|auto|pseudo] [--open stereooptions|palette|shortcuts|lastscene|start|drop|droplibrary|select|about|files|confirm|transform|points|merge|rawparts|rawedit|rawsub|rawpoints|rawsnap|symboledit|nineslice|nineslicedit|brush|brushing|brushlibrary|brushcurve|paintbrush|eraser|erasing|eyedropper|pen|frames|span|bucket|tlzoom|tlwide|motion|motionspan|motionpath|motionpoints|motionedit|motionpins|motionpinsspan|hints|hintsend|camera|cameraview|filters|strokes|prefs|licenses|zoom|recovery|plugins|actions|script|scriptproblems|testmovie|testmovieinside|testscript|textfields|testtext|button|testhits|exporthtml|publish|publishreport|publishanim|sound|envelope|library|librarymenu|colour|layerprops|frameview|layercolour|timelinepolish]\n\
      --renderer   force the GPU backend (also ANICRAFT_RENDERER); default wgpu, falling back to OpenGL\n\
      --stereo     opens a native stereo movie-stage view (compositor limits, no scene eye swap)\n\
      --frame      starts at this movie frame (1-based), without changing the file\n\
@@ -310,6 +323,12 @@ mod args_tests {
     /// argument, spaces and all; it opens through `file.open`, as File › Open does.
     #[test]
     fn stereo_and_starting_frame_are_view_state_arguments() {
+        let parsed = parse_args(["--stereo-size", "640x360", "--test-movie"].map(str::to_owned)).unwrap();
+        assert_eq!(parsed.look.stereo_size, Some([640, 360]));
+        assert!(parsed.look.test_movie);
+        for value in ["0x360", "640x0", "-1x3", "bad", "4294967295x4294967295"] {
+            assert!(parse_args(["--stereo-size", value].map(str::to_owned)).is_err());
+        }
         let args = parse(&["walk.anicraft", "--stereo", "--frame", "13"]);
         assert!(args.look.stereo);
         assert_eq!(args.look.frame, Some(13));

@@ -634,8 +634,14 @@ pub fn set_unsaved(unsaved: bool) {
     crate::web::set_unsaved(unsaved);
 }
 
-/// Native stereo windows currently use the shared Linux/BSD Wayland/X11 backend.
+/// Open the desktop's existing display page; output policy stays in the desktop.
 #[cfg(not(target_arch = "wasm32"))]
+pub fn open_display_settings() -> std::io::Result<()> {
+    std::process::Command::new("kcmshell6").arg("kcm_kscreen").spawn().map(|_| ())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// Native stereo windows currently use the shared Linux/BSD Wayland/X11 backend.
 pub fn stereo_stage_available() -> bool {
     OS == Os::Linux && !WEB
 }
