@@ -215,10 +215,22 @@ pub fn evaluate_scene_stereo(doc: &Document, scene: usize, frame: u32, sunk: f32
 /// clip at its own playhead, buttons in their pointer state, and properties scripts set, seen
 /// through the scene's camera.
 pub fn evaluate_player(doc: &Document, state: &PlayerState) -> DisplayList {
+    evaluate_player_with(doc, state, None)
+}
+
+/// One eye of an immutable interactive-player state, including clip clocks, script
+/// overrides, buttons and text fields. Neither eye advances the player.
+pub fn evaluate_player_eye(doc: &Document, state: &PlayerState, stereo: StereoStage, eye: StageEye) -> DisplayList {
+    evaluate_player_with(doc, state, Some((stereo, eye)))
+}
+
+fn evaluate_player_with(doc: &Document, state: &PlayerState, stereo: Option<(StereoStage, StageEye)>) -> DisplayList {
     let mut out = DisplayList::default();
     let play = Play { state, path: Vec::new() };
     let tl = doc.timeline(state.scene);
-    eval_timeline(doc, tl, state.root.frame, &Ctx::through(tl.camera_at(state.root.frame, &doc.stage)), &mut out, Some(&play));
+    let mut cx = Ctx::through(tl.camera_at(state.root.frame, &doc.stage));
+    cx.stereo = stereo;
+    eval_timeline(doc, tl, state.root.frame, &cx, &mut out, Some(&play));
     out
 }
 

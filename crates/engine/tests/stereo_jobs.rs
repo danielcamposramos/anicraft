@@ -61,3 +61,35 @@ fn flat_art_has_the_exact_ordinary_camera_pixels_in_both_eyes() {
     assert_eq!(images[0].rgba_premul, images[1].rgba_premul);
     assert_eq!(images[0].rgba_premul, images[2].rgba_premul);
 }
+
+#[test]
+fn interactive_pair_holds_state_when_the_player_moves_or_changes_without_a_tick() {
+    use anicraft_engine::render_service::make_player_stereo_jobs;
+    use anicraft_doc::player::{PlayerState, Overrides};
+    let mut doc = document(0.0);
+    let mut inner = (*doc.timeline(0).layers[0]).clone();
+    Arc::make_mut(&mut Arc::make_mut(&mut inner.keyframes[0]).elements[0]).transform = Affine::IDENTITY;
+    let symbol = anicraft_doc::SymbolId(800);
+    doc.library.push(Arc::new(anicraft_doc::Symbol { id: symbol, name: "Actor".into(), kind: anicraft_doc::SymbolKind::Graphic, linkage: None, scale_grid: None, scale_grid_kept: None, timeline: anicraft_doc::Timeline { layers: vec![Arc::new(inner)] } }));
+    Arc::make_mut(&mut Arc::make_mut(&mut Arc::make_mut(&mut doc.timeline_mut(0).layers[0]).keyframes[0]).elements[0]).kind = ElementKind::Symbol { symbol, loop_mode: Default::default(), first_frame: 0, blend: Default::default(), filters: Vec::new(), events: Vec::new() };
+    let mut state = PlayerState::default();
+    state.root.frame = 7;
+    let first = make_player_stereo_jobs(17, &doc, &state, 1, view(&doc), StereoStage::new(12.0, 4.0).unwrap());
+    state.root.frame = 8;
+    state.props.insert(vec![ElementId(1)], Overrides { x: Some(40.0), ..Default::default() });
+    let next = make_player_stereo_jobs(17, &doc, &state, 2, view(&doc), StereoStage::new(12.0, 4.0).unwrap());
+    assert!(first.iter().all(|job| job.frame == 7));
+    assert!(next.iter().all(|job| job.frame == 8));
+    assert_ne!(first[0].key, next[0].key);
+    assert_ne!(first[0].scene, next[0].scene);
+    let a = render_batch(&first);
+    let b = render_batch(&next);
+    assert_eq!(a[0].rgba_premul, a[1].rgba_premul);
+    assert_eq!(b[0].rgba_premul, b[1].rgba_premul);
+    assert_ne!(a[0].rgba_premul, b[0].rgba_premul);
+    state.props.get_mut(&[ElementId(1)][..]).unwrap().x = Some(45.0);
+    let input = make_player_stereo_jobs(17, &doc, &state, 3, view(&doc), StereoStage::new(12.0, 4.0).unwrap());
+    assert_eq!(input[0].frame, next[0].frame);
+    assert_ne!(input[0].key, next[0].key);
+    assert_ne!(input[0].scene, next[0].scene);
+}
